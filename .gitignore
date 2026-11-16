@@ -1,0 +1,67 @@
+# ==========================================
+# Gitignore para Detector de Letras NoteCam
+# ==========================================
+
+# Entornos virtuales de Python
+.venv/
+venv/
+ENV/
+env/
+env.bak/
+venv.bak/
+
+# Byte-compiled / optimizados de Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Archivos de caché del sistema y OCR
+cache_extracciones.json
+*.cache
+
+# Archivos y reportes generados (Excel y PDF)
+reportes/
+*.xlsx
+*.pdf
+
+# Archivos pesados / imágenes de entrada (conservar carpetas pero no imágenes pesadas en el repo)
+# Si deseas subir alguna imagen de prueba específica al repo, usa: git add -f ruta/a/imagen.jpg
+images-para-extraer-letras/**/*.jpg
+images-para-extraer-letras/**/*.jpeg
+images-para-extraer-letras/**/*.png
+images-para-extraer-letras/**/*.webp
+images-para-extraer-letras/**/*.bmp
+images-para-extraer-letras/**/*.tif
+images-para-extraer-letras/**/*.tiff
+
+# Distribución y empaquetado (PyInstaller, etc.)
+build/
+dist/
+*.spec
+
+# Configuraciones de IDEs y Editores
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+
+# Archivos de sistema operativo
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+desktop.ini
+$RECYCLE.BIN/
+.DS_Store
+.Spotlight-V100
+.Trashes
+
+# Logs y depuración
+*.log
+

@@ -1,0 +1,12 @@
+# Ignorar imágenes pesadas dentro de esta carpeta y subcarpetas
+*.[jJ][pP][gG]
+*.[jJ][pP][eE][gG]
+*.[pP][nN][gG]
+*.[wW][eE][bB][pP]
+*.[bB][mM][pP]
+*.[tT][iI][fF]
+*.[tT][iI][fF][fF]
+
+# Permitir el seguimiento de archivos .gitignore o .gitkeep
+!.gitignore
+!.gitkeep
