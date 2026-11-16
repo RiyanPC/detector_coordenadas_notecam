@@ -60,6 +60,102 @@ def main(page: ft.Page):
     status_text = ft.Text("Listo para procesar o visualizar.", size=13, color="#1B4332", weight=ft.FontWeight.W_500)
     progress_bar = ft.ProgressBar(value=0, width=320, color="#2D6A4F", bgcolor="#D8F3DC", visible=False)
 
+    # Indicador de carga activo, dinámico y con notificación visual prominente
+    loading_spinner = ft.ProgressRing(width=28, height=28, stroke_width=3, color="#2D6A4F")
+    loading_title = ft.Text("Procesando...", size=13, weight=ft.FontWeight.BOLD, color="#1B4332")
+    loading_subtitle = ft.Text("Iniciando tarea...", size=11, color="#2D6A4F")
+    loading_pct_badge = ft.Container(
+        content=ft.Text("0%", size=11, weight=ft.FontWeight.BOLD, color="#FFFFFF"),
+        bgcolor="#2D6A4F",
+        padding=ft.Padding.symmetric(horizontal=8, vertical=3),
+        border_radius=12,
+    )
+    loading_count_label = ft.Text("[ 0 / 0 ]", size=12, weight=ft.FontWeight.W_600, color="#1B4332")
+    loading_progress_bar = ft.ProgressBar(
+        value=0,
+        height=7,
+        color="#2D6A4F",
+        bgcolor="#D8F3DC",
+        border_radius=4,
+    )
+
+    loading_banner = ft.Container(
+        content=ft.Column(
+            controls=[
+                ft.Row(
+                    controls=[
+                        ft.Row(
+                            controls=[
+                                loading_spinner,
+                                ft.Column(
+                                    controls=[
+                                        loading_title,
+                                        loading_subtitle,
+                                    ],
+                                    spacing=1,
+                                ),
+                            ],
+                            spacing=12,
+                        ),
+                        ft.Row(
+                            controls=[
+                                loading_count_label,
+                                loading_pct_badge,
+                            ],
+                            spacing=8,
+                        ),
+                    ],
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                ),
+                loading_progress_bar,
+            ],
+            spacing=8,
+        ),
+        bgcolor="#EBF5EE",
+        padding=ft.Padding.symmetric(horizontal=16, vertical=10),
+        border_radius=10,
+        border=ft.Border.all(1.5, "#52B788"),
+        shadow=ft.BoxShadow(
+            spread_radius=1,
+            blur_radius=8,
+            color="#22000000",
+            offset=ft.Offset(0, 2),
+        ),
+        visible=False,
+    )
+
+    def start_loading(title: str, subtitle: str = "Procesando registros...", total: Optional[int] = None):
+        loading_title.value = title
+        loading_subtitle.value = subtitle
+        if total and total > 0:
+            loading_progress_bar.value = 0
+            loading_count_label.value = f"[ 0 / {total} ]"
+            loading_pct_badge.content.value = "0%"
+            loading_pct_badge.visible = True
+            loading_count_label.visible = True
+        else:
+            loading_progress_bar.value = None
+            loading_count_label.visible = False
+            loading_pct_badge.visible = False
+        loading_banner.visible = True
+        page.update()
+
+    def update_loading(current: int, total: int, step_desc: str):
+        pct = int((current / max(total, 1)) * 100)
+        loading_progress_bar.value = current / max(total, 1)
+        loading_count_label.value = f"[ {current} / {total} ]"
+        loading_count_label.visible = True
+        loading_pct_badge.content.value = f"{pct}%"
+        loading_pct_badge.visible = True
+        loading_subtitle.value = step_desc
+        page.update()
+
+    def finish_loading(success_msg: Optional[str] = None):
+        loading_banner.visible = False
+        if success_msg:
+            show_message(success_msg)
+        page.update()
+
     # Banner interactivo de archivo generado (con botón opcional para abrir de una vez)
     last_exported_file: Optional[Path] = None
     export_banner_text = ft.Text("", size=12, weight=ft.FontWeight.W_600, color="#1B4332")
@@ -429,15 +525,16 @@ def main(page: ft.Page):
     def run_extraction_in_background(paths_to_process: List[str | Path], append: bool = True):
         def worker():
             nonlocal all_records
-            progress_bar.visible = True
-            progress_bar.value = 0
-            show_message("Iniciando extracción OCR y georreferenciación...")
+            start_loading(
+                title="Extrayendo texto NoteCam y coordenadas GPS",
+                subtitle="Iniciando escaneo y análisis...",
+                total=None,
+            )
 
             def on_prog(idx, total, fname, rec):
-                progress_bar.value = idx / max(total, 1)
-                status_text.value = f"Procesando [{idx}/{total}]: {rec.get('carpeta', '')} / {fname}  →  Nota: {rec.get('nota', '')}"
-                if idx % 5 == 0 or idx == total or idx == 1:
-                    page.update()
+                note_preview = rec.get("nota", "") or rec.get("categoria", "")
+                step_desc = f"{rec.get('carpeta', '')} / {fname}  →  {note_preview}"
+                update_loading(idx, total, step_desc)
 
             new_recs = extractor.process_paths(paths_to_process, progress_callback=on_prog)
             if append:
@@ -450,12 +547,16 @@ def main(page: ft.Page):
             else:
                 all_records = new_recs
 
-            progress_bar.visible = False
+            # Persistencia 100% automática en caché y regeneración de mapa y reportes
+            extractor.save_cache()
             refresh_filters_and_table()
-            # Regenerar automáticamente mapa de plantaciones
+
+            update_loading(len(all_records), len(all_records), "Regenerando mapa satelital y capas KML/Excel...")
             generate_interactive_html_map(all_records, REPORTS_DIR / "mapa_plantaciones.html")
             export_to_kml(all_records, REPORTS_DIR / "plantaciones_zonas.kml")
-            show_message(f"¡Listo! {len(new_recs)} imágenes procesadas (Total: {len(all_records)}). Mapa actualizado.")
+            export_to_excel(all_records, REPORTS_DIR / "Reporte_NoteCam_Categorizado.xlsx")
+
+            finish_loading(f"¡Completado! {len(new_recs)} imágenes procesadas (Total: {len(all_records)} árboles). Mapa y reportes sincronizados automáticamente.")
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -488,17 +589,29 @@ def main(page: ft.Page):
         if not target_list:
             show_message(f"No hay registros disponibles para la zona {sel_zone}.", is_error=True)
             return
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        if sel_zone != "TODAS":
-            clean_z = re.sub(r'[^a-zA-Z0-9_-]', '_', sel_zone)
-            out_file = REPORTS_DIR / f"Reporte_NoteCam_{clean_z}_{ts}.xlsx"
-            export_to_excel(target_list, out_file, zone_name=sel_zone)
-            show_export_result(f"Excel de Zona '{sel_zone}' generado", out_file)
-        else:
-            out_file = REPORTS_DIR / f"Reporte_NoteCam_Completo_{ts}.xlsx"
-            export_to_excel(all_records, out_file)
-            export_to_excel(all_records, REPORTS_DIR / "Reporte_NoteCam_Categorizado.xlsx")
-            show_export_result("Excel Completo generado", out_file)
+
+        def _excel_worker():
+            zone_desc = f"Zona '{sel_zone}'" if sel_zone != "TODAS" else "Todas las Zonas"
+            start_loading(
+                title=f"Generando Reporte Excel ({len(target_list)} árboles)",
+                subtitle=f"Formateando hojas, resúmenes y enlaces a Google Maps para {zone_desc}...",
+                total=None,
+            )
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            if sel_zone != "TODAS":
+                clean_z = re.sub(r'[^a-zA-Z0-9_-]', '_', sel_zone)
+                out_file = REPORTS_DIR / f"Reporte_NoteCam_{clean_z}_{ts}.xlsx"
+                export_to_excel(target_list, out_file, zone_name=sel_zone)
+                finish_loading()
+                show_export_result(f"Excel de Zona '{sel_zone}' generado", out_file)
+            else:
+                out_file = REPORTS_DIR / f"Reporte_NoteCam_Completo_{ts}.xlsx"
+                export_to_excel(all_records, out_file)
+                export_to_excel(all_records, REPORTS_DIR / "Reporte_NoteCam_Categorizado.xlsx")
+                finish_loading()
+                show_export_result("Excel Completo generado", out_file)
+
+        threading.Thread(target=_excel_worker, daemon=True).start()
 
     def on_export_pdf_compact(e):
         sel_zone = export_zone_dropdown.value or "TODAS"
@@ -506,16 +619,28 @@ def main(page: ft.Page):
         if not target_list:
             show_message(f"No hay registros disponibles para la zona {sel_zone}.", is_error=True)
             return
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        if sel_zone != "TODAS":
-            clean_z = re.sub(r'[^a-zA-Z0-9_-]', '_', sel_zone)
-            out_file = REPORTS_DIR / f"Reporte_Compacto_{clean_z}_{ts}.pdf"
-            export_pdf_compact(target_list, out_file, zone_name=sel_zone)
-            show_export_result(f"PDF Compacto de Zona '{sel_zone}' generado", out_file)
-        else:
-            out_file = REPORTS_DIR / f"Reporte_Compacto_NoteCam_{ts}.pdf"
-            export_pdf_compact(all_records, out_file)
-            show_export_result("PDF Compacto generado", out_file)
+
+        def _compact_worker():
+            zone_desc = f"Zona '{sel_zone}'" if sel_zone != "TODAS" else "Todas las Zonas"
+            start_loading(
+                title=f"Generando PDF Compacto ({len(target_list)} árboles)",
+                subtitle=f"Construyendo tabla formal para {zone_desc}...",
+                total=None,
+            )
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            if sel_zone != "TODAS":
+                clean_z = re.sub(r'[^a-zA-Z0-9_-]', '_', sel_zone)
+                out_file = REPORTS_DIR / f"Reporte_Compacto_{clean_z}_{ts}.pdf"
+                export_pdf_compact(target_list, out_file, zone_name=sel_zone)
+                finish_loading()
+                show_export_result(f"PDF Compacto de Zona '{sel_zone}' generado", out_file)
+            else:
+                out_file = REPORTS_DIR / f"Reporte_Compacto_NoteCam_{ts}.pdf"
+                export_pdf_compact(all_records, out_file)
+                finish_loading()
+                show_export_result("PDF Compacto generado", out_file)
+
+        threading.Thread(target=_compact_worker, daemon=True).start()
 
     def on_export_pdf_photo(e):
         sel_zone = export_zone_dropdown.value or "TODAS"
@@ -526,22 +651,23 @@ def main(page: ft.Page):
 
         def _worker():
             zone_desc = f"Zona '{sel_zone}'" if sel_zone != "TODAS" else "Todas las Zonas"
-            show_message(f"Generando PDF Fotográfico para {zone_desc} ({len(target_list)} árboles)...")
-            progress_bar.visible = True
-            progress_bar.value = None
-            page.update()
+            start_loading(
+                title=f"Generando PDF Fotográfico ({len(target_list)} árboles)",
+                subtitle=f"Compilando miniaturas y metadatos para {zone_desc}...",
+                total=None,
+            )
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
             if sel_zone != "TODAS":
                 clean_z = re.sub(r'[^a-zA-Z0-9_-]', '_', sel_zone)
                 out_file = REPORTS_DIR / f"Reporte_Fotografico_{clean_z}_{ts}.pdf"
                 export_pdf_photographic(target_list, out_file, zone_name=sel_zone)
-                progress_bar.visible = False
+                finish_loading()
                 show_export_result(f"PDF Fotográfico de Zona '{sel_zone}' generado", out_file)
             else:
                 out_file = REPORTS_DIR / f"Reporte_Fotografico_NoteCam_{ts}.pdf"
                 export_pdf_photographic(all_records, out_file)
                 export_pdf_photographic(all_records, REPORTS_DIR / "Reporte_Fotografico_NoteCam.pdf")
-                progress_bar.visible = False
+                finish_loading()
                 show_export_result("PDF Fotográfico generado", out_file)
 
         threading.Thread(target=_worker, daemon=True).start()
@@ -551,10 +677,20 @@ def main(page: ft.Page):
         if not target_list:
             show_message("No hay registros disponibles para mostrar en el mapa.", is_error=True)
             return
-        map_path = REPORTS_DIR / "mapa_plantaciones.html"
-        generate_interactive_html_map(target_list, map_path)
-        webbrowser.open(map_path.as_uri())
-        show_message(f"Abriendo mapa interactivo de plantaciones ({len(target_list)} árboles cargados)...")
+
+        def _map_worker():
+            start_loading(
+                title="Generando y Abriendo Mapa Interactivo",
+                subtitle=f"Sincronizando capas y {len(target_list)} árboles para Satélite Google...",
+                total=None,
+            )
+            map_path = REPORTS_DIR / "mapa_plantaciones.html"
+            generate_interactive_html_map(target_list, map_path)
+            finish_loading()
+            webbrowser.open(map_path.as_uri())
+            show_message(f"Mapa satelital abierto en tu navegador ({len(target_list)} árboles cargados).")
+
+        threading.Thread(target=_map_worker, daemon=True).start()
 
     def on_export_kml(e):
         target_list = filtered_records if filtered_records else all_records
@@ -572,7 +708,7 @@ def main(page: ft.Page):
                 ft.Column(
                     controls=[
                         ft.Text(
-                            "Sistema de Plantaciones y Coordenadas (NoteCam)",
+                            "Sistema de Plantaciones y Coordenadas",
                             size=20,
                             weight=ft.FontWeight.BOLD,
                             color="#1B4332",
@@ -761,6 +897,7 @@ def main(page: ft.Page):
                 header_bar,
                 kpi_row,
                 toolbar_row,
+                loading_banner,
                 export_banner,
                 main_content,
             ],

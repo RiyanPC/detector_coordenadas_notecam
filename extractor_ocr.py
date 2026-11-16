@@ -130,12 +130,16 @@ class NoteCamExtractor:
     @staticmethod
     def derive_category_from_note(note: str, folder_name: str) -> str:
         """
-        Agrupa las notas por su categoría base única por zona / proyecto.
+        Agrupa las notas por su categoría base de forma 100% automática:
+        - Aplica reglas consolidadas para proyectos oficiales conocidos.
+        - Para cualquier nueva carpeta/zona futura, elimina numeraciones (#1, 88, 36, b. 2),
+          prefijos de OCR (Nota:, INota:, Obs:) y ruido de chats.
+        - Si la nota o la carpeta coinciden, agrupa de inmediato bajo la misma categoría.
         """
         norm_folder = NoteCamExtractor.normalize_folder_name(folder_name)
         folder_low = norm_folder.lower()
 
-        # Prioridad por zona / carpeta oficial
+        # 1. Reglas directas para proyectos oficiales consolidados
         if "francisco" in folder_low:
             return "CC.NN. San Francisco"
         if "abril" in folder_low:
@@ -149,28 +153,33 @@ class NoteCamExtractor:
         if "noviembre" in folder_low:
             return "GRFFS"
 
+        # 2. Si la nota está vacía o es ruido de capturas de chat
         if not note:
             return norm_folder or "Sin Categoría"
 
-        low = note.lower()
-        if "francisco" in low:
-            return "CC.NN. San Francisco"
-        if "abril" in low:
-            return "2 de Abril"
-        if "manatay" in low or "manantay" in low:
-            return "Jardines de Manantay"
-        if "florida" in low:
-            return "La Florida"
-        if "micaela" in low or "pashaco" in low:
-            return "Micaela - Pashaco"
-        if "grffs" in low:
-            return "GRFFS"
+        note_clean = note.strip()
+        if note_clean.lower() in ["responder", "pnder", "justo ahora", "hoy", "ayer", "100", "100%"]:
+            return norm_folder or "Sin Categoría"
 
-        base = note
-        base = re.sub(r"\b[bB]\.?\s*\d+\b", "", base)
-        base = re.sub(r"\b\d+\.?\b", "", base)
-        base = re.sub(r"\s+", " ", base).strip(" .,-_/")
-        return base.title() if base else (norm_folder or "Sin Categoría")
+        # 3. Limpieza automática universal para cualquier carpeta nueva:
+        # Quitar prefijos comunes como 'Nota:', 'INota:', 'Obs:', 'Ref:', 'Nro:'
+        note_clean = re.sub(r"^(?:inota|nota|obs|ref|nro|arbol|planta|sector)\s*[:\.\-]?\s*", "", note_clean, flags=re.IGNORECASE).strip()
+        # Quitar 'planta de', 'arbol de', 'planton de'
+        note_clean = re.sub(r"\b(?:planta|arbol|planton)\s+de\b", "", note_clean, flags=re.IGNORECASE).strip()
+        # Quitar símbolos numerales con número (#12, № 4)
+        note_clean = re.sub(r"[#№]\s*\d+", "", note_clean)
+        # Quitar números de árbol, códigos de lote y sufijos numéricos (ej. '88', '36', '12', 'b. 2', '0')
+        note_clean = re.sub(r"\b(?:b|n|nro|arbol|planta)?\s*\.?\s*\d+(?:[\.,]\d+)?\b", "", note_clean, flags=re.IGNORECASE)
+        note_clean = re.sub(r"\s+", " ", note_clean).strip(" .,-_/:\t")
+
+        if not note_clean:
+            return norm_folder or "Sin Categoría"
+
+        # Si tras la limpieza coincide o se contiene en el nombre de la carpeta, usar el nombre de la carpeta
+        if norm_folder and (note_clean.lower() in folder_low or folder_low in note_clean.lower()):
+            return norm_folder
+
+        return note_clean.title()
 
     def parse_ocr_lines(self, lines: List[str], folder_name: str, filename: str, filepath: str) -> Dict[str, str]:
         """

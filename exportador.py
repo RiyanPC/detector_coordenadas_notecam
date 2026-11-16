@@ -163,7 +163,7 @@ def export_to_excel(records: List[Dict[str, str]], output_path: str | Path, zone
         populate_data_sheet(ws_all, records, f"REPORTE DE PLANTACIONES — ZONA: {zone_name.upper()}")
     else:
         ws_all.title = "Datos Consolidados"
-        populate_data_sheet(ws_all, records, "REPORTE CONSOLIDADO DE TEXTOS Y COORDENADAS (NOTECAM)")
+        populate_data_sheet(ws_all, records, "REPORTE CONSOLIDADO DE TEXTOS Y COORDENADAS")
 
     # 2. Hoja Resumen por Categoría y Carpeta
     ws_sum = wb.create_sheet(title="Resumen Categorías")
@@ -245,7 +245,7 @@ def _add_page_number(canvas, doc):
     canvas.setFillColor(colors.HexColor("#555555"))
     page_text = f"Página {doc.page}  |  Generado el {datetime.now().strftime('%d/%m/%Y %H:%M')}"
     canvas.drawRightString(doc.pagesize[0] - 1.2 * cm, 0.8 * cm, page_text)
-    canvas.drawString(1.2 * cm, 0.8 * cm, "Sistema Extractor de Coordenadas y Plantaciones (NoteCam OCR)")
+    canvas.drawString(1.2 * cm, 0.8 * cm, "Sistema Extractor de Coordenadas y Plantaciones - Riyan")
     canvas.restoreState()
 
 
@@ -313,7 +313,7 @@ def export_pdf_compact(records: List[Dict[str, str]], output_path: str | Path, z
     )
 
     story = []
-    doc_heading = f"REPORTE DE PLANTACIONES — ZONA: {zone_name.upper()}" if (zone_name and zone_name != "TODAS") else "REPORTE CATEGORIZADO DE PLANTACIONES (NOTECAM)"
+    doc_heading = f"REPORTE DE PLANTACIONES — ZONA: {zone_name.upper()}" if (zone_name and zone_name != "TODAS") else "REPORTE CATEGORIZADO DE PLANTACIONES"
     story.append(Paragraph(doc_heading, title_style))
     story.append(
         Paragraph(
@@ -499,7 +499,7 @@ def export_pdf_photographic(records: List[Dict[str, str]], output_path: str | Pa
     )
 
     story = []
-    doc_heading = f"REPORTE FOTOGRÁFICO — ZONA: {zone_name.upper()}" if (zone_name and zone_name != "TODAS") else "REPORTE FOTOGRÁFICO DE PLANTACIONES Y COORDENADAS (NOTECAM)"
+    doc_heading = f"REPORTE FOTOGRÁFICO — ZONA: {zone_name.upper()}" if (zone_name and zone_name != "TODAS") else "REPORTE FOTOGRÁFICO DE PLANTACIONES Y COORDENADAS"
     story.append(Paragraph(doc_heading, title_style))
     story.append(
         Paragraph(

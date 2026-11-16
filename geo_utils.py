@@ -254,7 +254,7 @@ def generate_interactive_html_map(records: List[Dict[str, str]], output_path: st
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <title>Mapa de Zonas y Puntos de Plantación (NoteCam)</title>
+  <title>Mapa de Zonas y Puntos de Plantación</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -490,7 +490,7 @@ def generate_interactive_html_map(records: List[Dict[str, str]], output_path: st
         <svg class="icon icon-header" viewBox="0 0 24 24"><path d="M12 22v-9"/><path d="M9 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1 8.5-2A4.5 4.5 0 0 1 18 11a4.5 4.5 0 0 1-3 2H9z"/></svg>
         <h1>Zonas de Plantación</h1>
       </div>
-      <p>Delimitación de áreas y registro de plantones (NoteCam)</p>
+      <p>Delimitación de áreas y registro de plantones </p>
     </div>
     <div id="stats-bar">
       <span class="stat-item">
@@ -733,7 +733,7 @@ def export_to_kml(records: List[Dict[str, str]], output_path: str | Path) -> str
         '<?xml version="1.0" encoding="UTF-8"?>',
         '<kml xmlns="http://www.opengis.net/kml/2.2">',
         '<Document>',
-        '  <name>Registro de Plantaciones y Zonas (NoteCam)</name>',
+        '  <name>Registro de Plantaciones y Zonas</name>',
         '  <description>Puntos de árboles plantados y polígonos perimetrales por zona</description>',
     ]
 
