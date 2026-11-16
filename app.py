@@ -228,65 +228,76 @@ def main(page: ft.Page):
         page.update()
 
     # Tarjetas de resumen (KPIs)
-    kpi_total_val = ft.Text("0", size=22, weight=ft.FontWeight.BOLD, color="#1B4332")
-    kpi_folders_val = ft.Text("0", size=22, weight=ft.FontWeight.BOLD, color="#2D6A4F")
-    kpi_cats_val = ft.Text("0", size=22, weight=ft.FontWeight.BOLD, color="#40916C")
-    kpi_coords_val = ft.Text("0 / 0", size=17, weight=ft.FontWeight.BOLD, color="#1B4332")
+    kpi_total_val = ft.Text("0", size=20, weight=ft.FontWeight.BOLD, color="#1B4332")
+    kpi_folders_val = ft.Text("0", size=20, weight=ft.FontWeight.BOLD, color="#2D6A4F")
+    kpi_cats_val = ft.Text("0", size=20, weight=ft.FontWeight.BOLD, color="#40916C")
+    kpi_coords_val = ft.Text("0", size=18, weight=ft.FontWeight.BOLD, color="#0D6EFD")
 
-    def make_kpi_card(title: str, value_ctrl: ft.Control, icon_data):
+    kpi_total_sub = ft.Text("Árboles procesados", size=10, color="#6C757D")
+    kpi_folders_sub = ft.Text("Sectores delimitados", size=10, color="#6C757D")
+    kpi_cats_sub = ft.Text("Categorías unificadas", size=10, color="#6C757D")
+    kpi_coords_sub = ft.Text("Coordenadas verificadas", size=10, color="#6C757D")
+
+    def make_kpi_card(title: str, value_ctrl: ft.Control, sub_ctrl: ft.Control, icon_data, icon_color="#1B4332", icon_bg="#D8F3DC"):
         return ft.Container(
             content=ft.Row(
                 controls=[
                     ft.Container(
-                        content=ft.Icon(icon_data, color="#1B4332", size=26),
-                        bgcolor="#D8F3DC",
-                        padding=10,
-                        border_radius=10,
+                        content=ft.Icon(icon_data, color=icon_color, size=24),
+                        bgcolor=icon_bg,
+                        padding=9,
+                        border_radius=8,
                     ),
                     ft.Column(
                         controls=[
-                            ft.Text(title, size=11, color="#555555"),
+                            ft.Text(title, size=11, weight=ft.FontWeight.W_600, color="#495057"),
                             value_ctrl,
+                            sub_ctrl,
                         ],
-                        spacing=2,
+                        spacing=1,
                     ),
                 ],
-                spacing=12,
+                spacing=10,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
             ),
             bgcolor="#FFFFFF",
-            padding=12,
-            border_radius=10,
+            padding=ft.Padding.symmetric(horizontal=12, vertical=8),
+            border_radius=8,
             border=ft.Border.all(1, "#D8E2DC"),
             expand=True,
         )
 
     # Filtros
     folder_dropdown = ft.Dropdown(
-        label="Filtrar Tabla por Zona",
+        label="Zona / Parcela",
         value="TODAS",
         options=[ft.DropdownOption(key="TODAS", text="Todas las zonas")],
-        width=210,
+        width=200,
+        dense=True,
     )
     cat_dropdown = ft.Dropdown(
-        label="Filtrar por Categoría (Nota)",
+        label="Categoría / Especie",
         value="TODAS",
         options=[ft.DropdownOption(key="TODAS", text="Todas las categorías")],
-        width=210,
+        width=200,
+        dense=True,
     )
     search_field = ft.TextField(
-        label="Buscar por nota, archivo, coordenadas o fecha...",
+        label="Buscar por nota, archivo, coordenadas...",
         prefix_icon=ft.Icons.SEARCH,
-        width=300,
-        height=46,
+        dense=True,
+        expand=True,
+        height=40,
     )
     append_switch = ft.Switch(label="Acumular al importar", value=True)
 
     # Selector de Zona para Exportar a Excel y PDF
     export_zone_dropdown = ft.Dropdown(
-        label="Zona para Exportar (Excel / PDF)",
+        label="Zona a exportar",
         value="TODAS",
-        options=[ft.DropdownOption(key="TODAS", text="Todas las Zonas (Completo)")],
-        width=240,
+        options=[ft.DropdownOption(key="TODAS", text="Todas las Zonas (Consolidado)")],
+        width=265,
+        dense=True,
     )
 
     # Panel lateral de vista previa y edición rápida
@@ -408,14 +419,16 @@ def main(page: ft.Page):
     table_count_text = ft.Text("Mostrando 0 registros", size=12, color="#555555")
 
     def update_kpis():
-        kpi_total_val.value = str(len(all_records))
+        total_recs = len(all_records)
+        kpi_total_val.value = str(total_recs)
         folders = set(r.get("carpeta", "") for r in all_records if r.get("carpeta"))
         cats = set(r.get("categoria", "") for r in all_records if r.get("categoria"))
         geo_cnt = sum(1 for r in all_records if "Geográfica" in r.get("tipo_coordenada", ""))
         utm_cnt = sum(1 for r in all_records if r.get("tipo_coordenada", "") == "UTM")
         kpi_folders_val.value = str(len(folders))
         kpi_cats_val.value = str(len(cats))
-        kpi_coords_val.value = f"{geo_cnt} LatLon / {utm_cnt} UTM"
+        kpi_coords_val.value = f"{geo_cnt + utm_cnt} con GPS"
+        kpi_coords_sub.value = f"{geo_cnt} LatLon • {utm_cnt} UTM"
 
     def refresh_dropdown_options():
         folders = sorted(set(r.get("carpeta", "") for r in all_records if r.get("carpeta")))
@@ -434,7 +447,7 @@ def main(page: ft.Page):
         cat_dropdown.value = cur_c if cur_c in cats or cur_c == "TODAS" else "TODAS"
 
         cur_ez = export_zone_dropdown.value or "TODAS"
-        export_zone_dropdown.options = [ft.DropdownOption(key="TODAS", text="Todas las Zonas (Completo)")] + [
+        export_zone_dropdown.options = [ft.DropdownOption(key="TODAS", text="Todas las Zonas (Consolidado)")] + [
             ft.DropdownOption(key=f, text=f"Zona: {f}") for f in folders
         ]
         export_zone_dropdown.value = cur_ez if cur_ez in folders or cur_ez == "TODAS" else "TODAS"
@@ -518,7 +531,12 @@ def main(page: ft.Page):
             select_record(filtered_records[0])
         page.update()
 
-    folder_dropdown.on_select = refresh_filters_and_table
+    def on_folder_select(e):
+        if folder_dropdown.value and folder_dropdown.value in [opt.key for opt in export_zone_dropdown.options]:
+            export_zone_dropdown.value = folder_dropdown.value
+        refresh_filters_and_table()
+
+    folder_dropdown.on_select = on_folder_select
     cat_dropdown.on_select = refresh_filters_and_table
     search_field.on_change = refresh_filters_and_table
 
@@ -702,133 +720,184 @@ def main(page: ft.Page):
         os.startfile(str(REPORTS_DIR))
 
     # Barra superior de navegación y acciones
+    # Barra superior ejecutiva de navegación y acciones principales
     header_bar = ft.Container(
         content=ft.Row(
             controls=[
-                ft.Column(
+                ft.Row(
                     controls=[
-                        ft.Text(
-                            "Sistema de Plantaciones y Coordenadas",
-                            size=20,
-                            weight=ft.FontWeight.BOLD,
-                            color="#1B4332",
+                        ft.Container(
+                            content=ft.Icon(ft.Icons.ENERGY_SAVINGS_LEAF, color="#FFFFFF", size=24),
+                            bgcolor="#1B4332",
+                            padding=8,
+                            border_radius=8,
                         ),
-                        ft.Text(
-                            "Delimitación de zonas",
-                            size=12,
-                            color="#1B4332",
+                        ft.Column(
+                            controls=[
+                                ft.Text(
+                                    "Sistema de Plantaciones & Georreferenciación (NoteCam)",
+                                    size=17,
+                                    weight=ft.FontWeight.BOLD,
+                                    color="#1B4332",
+                                ),
+                                ft.Text(
+                                    "Monitoreo Agroforestal • Delimitación Satelital • Reportes Técnicos",
+                                    size=11,
+                                    weight=ft.FontWeight.W_500,
+                                    color="#40916C",
+                                ),
+                            ],
+                            spacing=1,
                         ),
                     ],
-                    spacing=2,
+                    spacing=12,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
                 ft.Row(
                     controls=[
                         ft.FilledButton(
-                            content="Ver Mapa de Plantaciones",
-                            icon=ft.Icons.TRAVEL_EXPLORE,
-                            bgcolor="#0D6EFD",
+                            content="Ver Mapa Satelital",
+                            icon=ft.Icons.MAP_OUTLINED,
+                            bgcolor="#1A73E8",
                             color="#FFFFFF",
+                            height=36,
+                            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=6)),
                             on_click=on_open_interactive_map,
                         ),
                         ft.FilledButton(
                             content="Importar Carpeta",
-                            icon=ft.Icons.CREATE_NEW_FOLDER,
+                            icon=ft.Icons.CREATE_NEW_FOLDER_OUTLINED,
                             bgcolor="#1B4332",
                             color="#FFFFFF",
+                            height=36,
+                            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=6)),
                             on_click=on_import_folder,
                         ),
                         ft.FilledButton(
                             content="Importar Fotos",
-                            icon=ft.Icons.ADD_PHOTO_ALTERNATE,
+                            icon=ft.Icons.ADD_PHOTO_ALTERNATE_OUTLINED,
                             bgcolor="#2D6A4F",
                             color="#FFFFFF",
+                            height=36,
+                            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=6)),
                             on_click=on_import_files,
                         ),
                         ft.OutlinedButton(
                             content="Limpiar",
-                            icon=ft.Icons.DELETE_OUTLINE,
+                            icon=ft.Icons.DELETE_SWEEP_OUTLINED,
+                            height=36,
+                            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=6)),
                             on_click=on_clear_records,
                         ),
                     ],
                     spacing=8,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
             ],
             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
         ),
         bgcolor="#FFFFFF",
-        padding=14,
+        padding=ft.Padding.symmetric(horizontal=14, vertical=9),
         border_radius=10,
         border=ft.Border.all(1, "#D8E2DC"),
     )
 
     kpi_row = ft.Row(
         controls=[
-            make_kpi_card("Total Árboles Plantados", kpi_total_val, ft.Icons.FOREST),
-            make_kpi_card("Zonas de Plantación", kpi_folders_val, ft.Icons.FENCE),
-            make_kpi_card("Categorías / Especies", kpi_cats_val, ft.Icons.CATEGORY),
-            make_kpi_card("Georreferenciación", kpi_coords_val, ft.Icons.LOCATION_ON),
+            make_kpi_card("Total Plantones", kpi_total_val, kpi_total_sub, ft.Icons.FOREST, "#1B4332", "#D8F3DC"),
+            make_kpi_card("Zonas Delimitadas", kpi_folders_val, kpi_folders_sub, ft.Icons.GRID_VIEW_ROUNDED, "#2D6A4F", "#E8F5E9"),
+            make_kpi_card("Categorías / Especies", kpi_cats_val, kpi_cats_sub, ft.Icons.SPA_OUTLINED, "#40916C", "#E8F8F5"),
+            make_kpi_card("Georreferenciación", kpi_coords_val, kpi_coords_sub, ft.Icons.LOCATION_ON, "#0D6EFD", "#E7F1FF"),
         ],
-        spacing=12,
+        spacing=10,
     )
 
     toolbar_row = ft.Container(
         content=ft.Column(
             controls=[
+                # Fila 1: Filtros y Búsqueda en tiempo real
                 ft.Row(
                     controls=[
+                        ft.Row(
+                            controls=[
+                                ft.Icon(ft.Icons.FILTER_ALT_OUTLINED, size=16, color="#2D6A4F"),
+                                ft.Text("FILTRAR:", size=11, weight=ft.FontWeight.BOLD, color="#2D6A4F"),
+                            ],
+                            spacing=4,
+                        ),
                         folder_dropdown,
                         cat_dropdown,
                         search_field,
                         append_switch,
                     ],
                     spacing=10,
-                    wrap=True,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
+                ft.Divider(height=1, thickness=1, color="#E8ECE9"),
+                # Fila 2: Centro de Exportación de Reportes
                 ft.Row(
                     controls=[
+                        ft.Row(
+                            controls=[
+                                ft.Icon(ft.Icons.FILE_DOWNLOAD_OUTLINED, size=16, color="#1B4332"),
+                                ft.Text("EXPORTAR:", size=11, weight=ft.FontWeight.BOLD, color="#1B4332"),
+                            ],
+                            spacing=4,
+                        ),
                         export_zone_dropdown,
                         ft.FilledButton(
                             content="Excel (.xlsx)",
                             icon=ft.Icons.TABLE_VIEW,
-                            bgcolor="#1D6F42",
+                            bgcolor="#198754",
                             color="#FFFFFF",
+                            height=36,
+                            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=6)),
                             on_click=on_export_excel,
                         ),
                         ft.FilledButton(
                             content="PDF Tabla",
                             icon=ft.Icons.PICTURE_AS_PDF,
-                            bgcolor="#B02A37",
+                            bgcolor="#DC3545",
                             color="#FFFFFF",
+                            height=36,
+                            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=6)),
                             on_click=on_export_pdf_compact,
                         ),
                         ft.FilledButton(
                             content="PDF Fotos",
-                            icon=ft.Icons.COLLECTIONS,
-                            bgcolor="#842029",
+                            icon=ft.Icons.PHOTO_LIBRARY,
+                            bgcolor="#8B1E27",
                             color="#FFFFFF",
+                            height=36,
+                            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=6)),
                             on_click=on_export_pdf_photo,
                         ),
                         ft.FilledButton(
-                            content="KML Google Earth",
+                            content="KML Earth",
                             icon=ft.Icons.PUBLIC,
-                            bgcolor="#4A5568",
+                            bgcolor="#495057",
                             color="#FFFFFF",
+                            height=36,
+                            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=6)),
                             on_click=on_export_kml,
                         ),
                         ft.OutlinedButton(
                             content="Carpeta Reportes",
                             icon=ft.Icons.FOLDER_OPEN,
+                            height=36,
+                            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=6)),
                             on_click=on_open_reports_folder,
                         ),
                     ],
                     spacing=8,
-                    wrap=True,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
             ],
-            spacing=10,
+            spacing=8,
         ),
         bgcolor="#FFFFFF",
-        padding=12,
+        padding=ft.Padding.symmetric(horizontal=14, vertical=10),
         border_radius=10,
         border=ft.Border.all(1, "#D8E2DC"),
     )
