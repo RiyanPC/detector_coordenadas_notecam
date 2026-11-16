@@ -99,29 +99,38 @@ class NoteCamExtractor:
         return s
 
     @staticmethod
+    def normalize_folder_name(folder_name: str) -> str:
+        """
+        Normaliza nombres de carpeta unificando variantes (ej. MICAELA 1 y MICAELA).
+        """
+        f = (folder_name or "").strip()
+        if f.upper() in ("MICAELA", "MICAELA 1", "MICAELA1"):
+            return "MICAELA"
+        return f
+
+    @staticmethod
     def derive_category_from_note(note: str, folder_name: str) -> str:
         """
         Agrupa las notas por su categoría base (quitando numeración correlativa de cada planta/punto).
         """
+        norm_folder = NoteCamExtractor.normalize_folder_name(folder_name)
         if not note:
-            return folder_name or "Sin Categoría"
+            return norm_folder or "Sin Categoría"
         base = note
         # Quitar números y códigos correlativos finales como "b. 11", "10", "1. pashaco"
         base = re.sub(r"\b[bB]\.?\s*\d+\b", "", base)
         base = re.sub(r"\b\d+\.?\b", "", base)
         base = re.sub(r"\s+", " ", base).strip(" .,-_/")
         if not base:
-            return folder_name or "Sin Categoría"
+            return norm_folder or "Sin Categoría"
 
         low = base.lower()
         if "manatay" in low or "manantay" in low:
             return "Jardines de Manantay"
         if "florida" in low:
             return "La Florida"
-        if "micaela" in low and "pashaco" in low:
+        if "micaela" in low or "pashaco" in low or "micaela" in norm_folder.lower():
             return "Micaela - Pashaco"
-        if "micaela" in low:
-            return "Micaela"
         if "grffs" in low:
             return "GRFFS"
         return base.title()
@@ -130,6 +139,7 @@ class NoteCamExtractor:
         """
         Analiza las líneas extraídas de la esquina inferior izquierda y las estructura en campos.
         """
+        folder_name = self.normalize_folder_name(folder_name)
         tipo_coord = ""
         lat_este = ""
         lon_norte = ""

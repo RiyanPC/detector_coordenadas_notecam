@@ -1,9 +1,36 @@
+import io
 import re
 import math
 import json
+import base64
 from pathlib import Path
 from typing import List, Dict, Tuple, Optional
 from collections import defaultdict
+from PIL import Image as PILImage
+
+_THUMB_CACHE: Dict[str, str] = {}
+
+
+def get_image_thumbnail_b64(img_path: str, max_size: Tuple[int, int] = (220, 160)) -> str:
+    """
+    Genera y cachea una miniatura JPEG en base64 para que el mapa HTML
+    sea 100% autocontenido y muestre la foto al pasar el mouse instantáneamente.
+    """
+    p = str(Path(img_path).resolve())
+    if p in _THUMB_CACHE:
+        return _THUMB_CACHE[p]
+    try:
+        if not Path(p).exists():
+            return ""
+        im = PILImage.open(p).convert("RGB")
+        im.thumbnail(max_size, PILImage.Resampling.BILINEAR)
+        buf = io.BytesIO()
+        im.save(buf, format="JPEG", quality=68)
+        res = "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
+        _THUMB_CACHE[p] = res
+        return res
+    except Exception:
+        return ""
 
 
 def utm_to_latlon(easting: float, northing: float, zone_number: int = 18, northern_hemisphere: bool = False) -> Tuple[float, float]:
@@ -116,10 +143,17 @@ ZONE_COLORS = [
 ]
 
 
+def normalize_zone_name(name: str) -> str:
+    s = (name or "").strip()
+    if s.upper() in ("MICAELA", "MICAELA 1", "MICAELA1"):
+        return "MICAELA"
+    return s
+
+
 def generate_interactive_html_map(records: List[Dict[str, str]], output_path: str | Path) -> str:
     """
     Genera un mapa HTML interactivo usando EXCLUSIVAMENTE Satélite Google Híbrido,
-    con iconos vectoriales SVG en lugar de emojis.
+    con vista previa instantánea de foto al pasar el mouse (hover).
     """
     out = Path(output_path).resolve()
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -134,7 +168,8 @@ def generate_interactive_html_map(records: List[Dict[str, str]], output_path: st
             r_copy["lat"] = lat
             r_copy["lon"] = lon
             r_copy["gmaps_url"] = get_google_maps_url(lat, lon)
-            zone_key = r.get("carpeta") or "Zona General"
+            zone_key = normalize_zone_name(r.get("carpeta") or "Zona General")
+            r_copy["carpeta"] = zone_key
             by_zone[zone_key].append(r_copy)
             valid_points_all.append((lat, lon))
 
@@ -155,6 +190,24 @@ def generate_interactive_html_map(records: List[Dict[str, str]], output_path: st
             cat_counts[it.get("categoria", "Sin especie")] += 1
         spec_summary = ", ".join([f"{k} ({v})" for k, v in cat_counts.items()])
 
+        items_parsed = []
+        for it in items:
+            thumb_b64 = get_image_thumbnail_b64(it.get("ruta", ""))
+            items_parsed.append({
+                "archivo": it["archivo"],
+                "carpeta": it["carpeta"],
+                "categoria": it["categoria"],
+                "nota": it["nota"],
+                "lat": round(it["lat"], 6),
+                "lon": round(it["lon"], 6),
+                "elevacion": it["elevacion"],
+                "precision": it["precision"],
+                "tiempo": it["tiempo"],
+                "gmaps_url": it["gmaps_url"],
+                "ruta": str(Path(it["ruta"]).resolve()).replace("\\", "/"),
+                "thumb": thumb_b64,
+            })
+
         zones_data.append({
             "id": f"zone_{idx}",
             "name": zone_name,
@@ -162,22 +215,7 @@ def generate_interactive_html_map(records: List[Dict[str, str]], output_path: st
             "species_summary": spec_summary,
             "color": color,
             "polygon": [[round(p[0], 6), round(p[1], 6)] for p in hull],
-            "items": [
-                {
-                    "archivo": it["archivo"],
-                    "carpeta": it["carpeta"],
-                    "categoria": it["categoria"],
-                    "nota": it["nota"],
-                    "lat": round(it["lat"], 6),
-                    "lon": round(it["lon"], 6),
-                    "elevacion": it["elevacion"],
-                    "precision": it["precision"],
-                    "tiempo": it["tiempo"],
-                    "gmaps_url": it["gmaps_url"],
-                    "ruta": str(Path(it["ruta"]).resolve()).replace("\\", "/"),
-                }
-                for it in items
-            ],
+            "items": items_parsed,
         })
 
     zones_json = json.dumps(zones_data, ensure_ascii=False)
@@ -304,7 +342,7 @@ def generate_interactive_html_map(records: List[Dict[str, str]], output_path: st
       top: 12px;
       right: 12px;
       z-index: 1000;
-      background: rgba(27, 67, 50, 0.90);
+      background: rgba(27, 67, 50, 0.92);
       color: #FFFFFF;
       backdrop-filter: blur(4px);
       padding: 7px 13px;
@@ -318,15 +356,84 @@ def generate_interactive_html_map(records: List[Dict[str, str]], output_path: st
       border: 1px solid rgba(255,255,255,0.25);
     }}
 
+    /* Estilo del Tooltip de Foto al pasar el mouse (Hover) */
+    .custom-photo-tooltip.leaflet-tooltip {{
+      background: transparent !important;
+      border: none !important;
+      box-shadow: none !important;
+      padding: 0 !important;
+    }}
+    .custom-photo-tooltip.leaflet-tooltip::before {{
+      display: none !important;
+    }}
+    .hover-photo-card {{
+      background: #FFFFFF;
+      border-radius: 8px;
+      overflow: hidden;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.45);
+      border: 2px solid #2D6A4F;
+      width: 220px;
+      pointer-events: none;
+      animation: popIn 0.12s ease-out;
+    }}
+    @keyframes popIn {{
+      from {{ transform: scale(0.92); opacity: 0; }}
+      to {{ transform: scale(1); opacity: 1; }}
+    }}
+    .hover-photo-img {{
+      width: 100%;
+      height: 145px;
+      object-fit: cover;
+      display: block;
+      background: #111;
+    }}
+    .hover-no-img {{
+      width: 100%;
+      height: 80px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #E5E7EB;
+      color: #6B7280;
+      font-size: 11px;
+    }}
+    .hover-photo-body {{
+      padding: 8px 10px;
+      background: #FFFFFF;
+    }}
+    .hover-photo-title {{
+      font-weight: 700;
+      font-size: 12px;
+      color: #1B4332;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }}
+    .hover-photo-sub {{
+      font-size: 11px;
+      color: #555555;
+      margin-top: 2px;
+    }}
+
+    /* Estilo del Popup al hacer clic */
     .custom-popup {{ font-size: 12px; max-width: 280px; line-height: 1.4; }}
     .popup-title {{
       font-weight: 700;
       font-size: 13px;
       color: #1B4332;
-      margin-bottom: 4px;
+      margin-bottom: 6px;
       display: flex;
       align-items: center;
       gap: 6px;
+    }}
+    .popup-img {{
+      width: 100%;
+      height: 140px;
+      object-fit: cover;
+      border-radius: 6px;
+      margin-bottom: 6px;
+      display: block;
+      background: #111;
     }}
     .popup-note {{ font-size: 12px; color: #2D6A4F; font-weight: 600; margin-bottom: 4px; }}
     .popup-gmaps-btn {{
@@ -353,6 +460,7 @@ def generate_interactive_html_map(records: List[Dict[str, str]], output_path: st
         <svg class="icon icon-header" viewBox="0 0 24 24"><path d="M12 22v-9"/><path d="M9 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1 8.5-2A4.5 4.5 0 0 1 18 11a4.5 4.5 0 0 1-3 2H9z"/></svg>
         <h1>Zonas de Plantación</h1>
       </div>
+      <p>Delimitación de áreas y registro de plantones (NoteCam)</p>
     </div>
     <div id="stats-bar">
       <span class="stat-item">
@@ -400,7 +508,7 @@ def generate_interactive_html_map(records: List[Dict[str, str]], output_path: st
     zoomControl: true
   }});
 
-  // 2. Capa única: Satélite Google Híbrido (etiquetas y calles superpuestas sobre satélite)
+  // 2. Capa única: Satélite Google Híbrido
   L.tileLayer('https://mt{{s}}.google.com/vt/lyrs=y&x={{x}}&y={{y}}&z={{z}}', {{
     subdomains: ['0', '1', '2', '3'],
     attribution: '&copy; Google Maps',
@@ -433,20 +541,50 @@ def generate_interactive_html_map(records: List[Dict[str, str]], output_path: st
       group.addLayer(polygon);
     }}
 
-    // Marcadores circulares para cada árbol/planta
+    // Marcadores para cada árbol/planta
     zone.items.forEach((item) => {{
       const marker = L.circleMarker([item.lat, item.lon], {{
-        radius: 6,
+        radius: 6.5,
         fillColor: zone.color.marker,
         color: '#FFFFFF',
         weight: 1.5,
         opacity: 1,
-        fillOpacity: 0.90
+        fillOpacity: 0.92
       }});
 
+      // 1. TOOLTIP AL PASAR EL MOUSE (HOVER): Muestra la foto de inmediato
+      const hoverTooltipHtml = `
+        <div class="hover-photo-card">
+          ${{item.thumb ? `<img class="hover-photo-img" src="${{item.thumb}}" alt="${{item.archivo}}" />` : '<div class="hover-no-img">Sin imagen</div>'}}
+          <div class="hover-photo-body">
+            <div class="hover-photo-title">${{item.nota || item.archivo}}</div>
+            <div class="hover-photo-sub"><b>${{item.carpeta}}</b> &bull; ${{item.tiempo || ''}}</div>
+          </div>
+        </div>
+      `;
+
+      marker.bindTooltip(hoverTooltipHtml, {{
+        direction: 'top',
+        offset: [0, -10],
+        opacity: 1,
+        className: 'custom-photo-tooltip'
+      }});
+
+      // Efecto interactivo al pasar el mouse (agrandar el punto suavemente)
+      marker.on('mouseover', function() {{
+        this.setRadius(9.5);
+        this.setStyle({{ weight: 2.5 }});
+      }});
+      marker.on('mouseout', function() {{
+        this.setRadius(6.5);
+        this.setStyle({{ weight: 1.5 }});
+      }});
+
+      // 2. POPUP AL HACER CLIC: Detalles completos y botón para abrir en Google Maps
       const popupHtml = `
         <div class="custom-popup">
           <div class="popup-title">${{SVG_PIN}} ${{item.archivo}}</div>
+          ${{item.thumb ? `<img class="popup-img" src="${{item.thumb}}" alt="${{item.archivo}}" />` : ''}}
           <div class="popup-note"><b>Nota / Especie:</b> ${{item.nota || 'Sin nota'}}</div>
           <div style="font-size:11px; color:#555; margin-bottom: 6px;">
             <b>Zona / Carpeta:</b> ${{item.carpeta}}<br/>
@@ -551,7 +689,8 @@ def export_to_kml(records: List[Dict[str, str]], output_path: str | Path) -> str
             r_c = dict(r)
             r_c["lat"] = lat
             r_c["lon"] = lon
-            zone_key = r.get("carpeta") or "Zona General"
+            zone_key = normalize_zone_name(r.get("carpeta") or "Zona General")
+            r_c["carpeta"] = zone_key
             by_zone[zone_key].append(r_c)
 
     kml = [

@@ -34,6 +34,18 @@ def _sanitize_sheet_name(name: str) -> str:
     return clean[:28] if clean else "Categoria"
 
 
+def _normalize_records(records: List[Dict[str, str]]) -> List[Dict[str, str]]:
+    norm = []
+    for r in records:
+        rc = dict(r)
+        c = NoteCamExtractor.normalize_folder_name(rc.get("carpeta", "General"))
+        rc["carpeta"] = c
+        if c == "MICAELA":
+            rc["categoria"] = "Micaela - Pashaco"
+        norm.append(rc)
+    return norm
+
+
 def export_to_excel(records: List[Dict[str, str]], output_path: str | Path) -> str:
     """
     Exporta los registros extraídos a un archivo Excel (.xlsx) con:
@@ -42,6 +54,7 @@ def export_to_excel(records: List[Dict[str, str]], output_path: str | Path) -> s
     - Hoja 2: Resumen por Categorías y Zonas
     - Hojas individuales por cada Carpeta / Zona
     """
+    records = _normalize_records(records)
     out = Path(output_path).resolve()
     out.parent.mkdir(parents=True, exist_ok=True)
 
@@ -75,12 +88,11 @@ def export_to_excel(records: List[Dict[str, str]], output_path: str | Path) -> s
         "Nota Extraída",
         "Google Maps",
         "Texto Completo (OCR)",
-        "Ruta de Imagen",
     ]
 
     def populate_data_sheet(ws, rows_data: List[Dict[str, str]], sheet_title: str):
         ws.views.sheetView[0].showGridLines = True
-        ws.merge_cells("A1:N1")
+        ws.merge_cells("A1:M1")
         ws["A1"] = f"{sheet_title} — Total: {len(rows_data)} imágenes (Generado: {datetime.now().strftime('%d/%m/%Y %H:%M')})"
         ws["A1"].font = title_font
         ws["A1"].alignment = Alignment(vertical="center")
@@ -116,7 +128,6 @@ def export_to_excel(records: List[Dict[str, str]], output_path: str | Path) -> s
                 rec.get("nota", ""),
                 gmaps_formula,
                 rec.get("texto_completo", ""),
-                rec.get("ruta", ""),
             ]
             for c_idx, val in enumerate(vals, start=1):
                 c = ws.cell(row=r, column=c_idx, value=val)
@@ -136,10 +147,10 @@ def export_to_excel(records: List[Dict[str, str]], output_path: str | Path) -> s
                     c.font = normal_font
                     c.alignment = Alignment(vertical="center")
 
-        ws.auto_filter.ref = f"A2:N{len(rows_data) + 2}"
+        ws.auto_filter.ref = f"A2:M{len(rows_data) + 2}"
         ws.freeze_panes = "A3"
 
-        col_widths = [6, 22, 22, 32, 16, 16, 16, 16, 13, 18, 25, 18, 36, 45]
+        col_widths = [6, 22, 22, 32, 16, 16, 16, 16, 13, 18, 25, 18, 38]
         for c_idx, width in enumerate(col_widths, start=1):
             ws.column_dimensions[get_column_letter(c_idx)].width = width
 
@@ -235,6 +246,7 @@ def export_pdf_compact(records: List[Dict[str, str]], output_path: str | Path) -
     """
     Exporta un reporte PDF compacto en formato tabla (Horizontal A4) con enlace a Google Maps.
     """
+    records = _normalize_records(records)
     out = Path(output_path).resolve()
     out.parent.mkdir(parents=True, exist_ok=True)
 
@@ -417,6 +429,7 @@ def export_pdf_photographic(records: List[Dict[str, str]], output_path: str | Pa
     """
     Exporta un reporte PDF fotográfico con miniatura, recorte y botón a Google Maps.
     """
+    records = _normalize_records(records)
     out = Path(output_path).resolve()
     out.parent.mkdir(parents=True, exist_ok=True)
 
