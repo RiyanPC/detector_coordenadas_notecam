@@ -52,13 +52,84 @@ def main(page: ft.Page):
     page.window.height = 880
 
     extractor = NoteCamExtractor(use_cache=True)
-    all_records: List[Dict[str, str]] = []
+    all_records: List[Dict[str, str]] = list(extractor.cache.values()) if extractor.cache else []
     filtered_records: List[Dict[str, str]] = []
     selected_record: Dict[str, str] | None = None
 
     # Controles de estado y progreso
     status_text = ft.Text("Listo para procesar o visualizar.", size=13, color="#1B4332", weight=ft.FontWeight.W_500)
     progress_bar = ft.ProgressBar(value=0, width=320, color="#2D6A4F", bgcolor="#D8F3DC", visible=False)
+
+    # Banner interactivo de archivo generado (con botón opcional para abrir de una vez)
+    last_exported_file: Optional[Path] = None
+    export_banner_text = ft.Text("", size=12, weight=ft.FontWeight.W_600, color="#1B4332")
+    btn_open_file = ft.FilledButton(
+        content="Abrir Archivo",
+        icon=ft.Icons.FILE_OPEN,
+        bgcolor="#1B4332",
+        color="#FFFFFF",
+        height=32,
+    )
+    btn_open_dir = ft.OutlinedButton(
+        content="Ver en Carpeta",
+        icon=ft.Icons.FOLDER_OPEN,
+        height=32,
+        on_click=lambda _: os.startfile(str(REPORTS_DIR)),
+    )
+
+    def on_click_open_exported_file(ev):
+        if last_exported_file and last_exported_file.exists():
+            os.startfile(str(last_exported_file))
+
+    btn_open_file.on_click = on_click_open_exported_file
+
+    def hide_export_banner(ev=None):
+        export_banner.visible = False
+        page.update()
+
+    btn_close_banner = ft.IconButton(
+        icon=ft.Icons.CLOSE,
+        icon_size=18,
+        tooltip="Cerrar notificación",
+        on_click=hide_export_banner,
+    )
+
+    export_banner = ft.Container(
+        content=ft.Row(
+            controls=[
+                ft.Row(
+                    controls=[
+                        ft.Icon(ft.Icons.CHECK_CIRCLE, color="#2D6A4F", size=22),
+                        export_banner_text,
+                    ],
+                    spacing=8,
+                ),
+                ft.Row(
+                    controls=[
+                        btn_open_file,
+                        btn_open_dir,
+                        btn_close_banner,
+                    ],
+                    spacing=8,
+                ),
+            ],
+            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+        ),
+        bgcolor="#E8F5E9",
+        padding=ft.Padding.symmetric(horizontal=14, vertical=7),
+        border_radius=8,
+        border=ft.Border.all(1, "#A3D9A5"),
+        visible=False,
+    )
+
+    def show_export_result(prefix_msg: str, file_path: Path):
+        nonlocal last_exported_file
+        last_exported_file = Path(file_path).resolve()
+        ext = file_path.suffix.upper()[1:]
+        export_banner_text.value = f"{prefix_msg}: {file_path.name}"
+        btn_open_file.content = f"Abrir {ext}"
+        export_banner.visible = True
+        page.update()
 
     # Tarjetas de resumen (KPIs)
     kpi_total_val = ft.Text("0", size=22, weight=ft.FontWeight.BOLD, color="#1B4332")
@@ -95,16 +166,16 @@ def main(page: ft.Page):
 
     # Filtros
     folder_dropdown = ft.Dropdown(
-        label="Filtrar por Zona / Carpeta",
+        label="Filtrar Tabla por Zona",
         value="TODAS",
         options=[ft.DropdownOption(key="TODAS", text="Todas las zonas")],
-        width=220,
+        width=210,
     )
     cat_dropdown = ft.Dropdown(
         label="Filtrar por Categoría (Nota)",
         value="TODAS",
         options=[ft.DropdownOption(key="TODAS", text="Todas las categorías")],
-        width=220,
+        width=210,
     )
     search_field = ft.TextField(
         label="Buscar por nota, archivo, coordenadas o fecha...",
@@ -113,6 +184,14 @@ def main(page: ft.Page):
         height=46,
     )
     append_switch = ft.Switch(label="Acumular al importar", value=True)
+
+    # Selector de Zona para Exportar a Excel y PDF
+    export_zone_dropdown = ft.Dropdown(
+        label="Zona para Exportar (Excel / PDF)",
+        value="TODAS",
+        options=[ft.DropdownOption(key="TODAS", text="Todas las Zonas (Completo)")],
+        width=240,
+    )
 
     # Panel lateral de vista previa y edición rápida
     preview_full_img = ft.Image(src="", width=220, height=140, border_radius=8, visible=False)
@@ -258,6 +337,12 @@ def main(page: ft.Page):
         ]
         cat_dropdown.value = cur_c if cur_c in cats or cur_c == "TODAS" else "TODAS"
 
+        cur_ez = export_zone_dropdown.value or "TODAS"
+        export_zone_dropdown.options = [ft.DropdownOption(key="TODAS", text="Todas las Zonas (Completo)")] + [
+            ft.DropdownOption(key=f, text=f"Zona: {f}") for f in folders
+        ]
+        export_zone_dropdown.value = cur_ez if cur_ez in folders or cur_ez == "TODAS" else "TODAS"
+
     def refresh_filters_and_table(e=None):
         nonlocal filtered_records
         update_kpis()
@@ -355,8 +440,10 @@ def main(page: ft.Page):
                     page.update()
 
             new_recs = extractor.process_paths(paths_to_process, progress_callback=on_prog)
-            if append and all_records:
-                existing_by_path = {r["ruta"]: r for r in all_records}
+            if append:
+                existing_by_path = {r["ruta"]: r for r in extractor.cache.values()}
+                for r in all_records:
+                    existing_by_path[r["ruta"]] = r
                 for nr in new_recs:
                     existing_by_path[nr["ruta"]] = nr
                 all_records = list(existing_by_path.values())
@@ -396,59 +483,84 @@ def main(page: ft.Page):
         show_message("Lista limpiada. Puedes importar una nueva carpeta o fotos.")
 
     def on_export_excel(e):
-        target_list = filtered_records if filtered_records else all_records
+        sel_zone = export_zone_dropdown.value or "TODAS"
+        target_list = [r for r in all_records if r.get("carpeta") == sel_zone] if sel_zone != "TODAS" else all_records
         if not target_list:
-            show_message("No hay registros para exportar.", is_error=True)
+            show_message(f"No hay registros disponibles para la zona {sel_zone}.", is_error=True)
             return
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        out_file = REPORTS_DIR / f"Reporte_NoteCam_{ts}.xlsx"
-        export_to_excel(target_list, out_file)
-        export_to_excel(all_records, REPORTS_DIR / "Reporte_NoteCam_Categorizado.xlsx")
-        show_message(f"Excel exportado con enlaces a Google Maps en: reportes/{out_file.name}")
+        if sel_zone != "TODAS":
+            clean_z = re.sub(r'[^a-zA-Z0-9_-]', '_', sel_zone)
+            out_file = REPORTS_DIR / f"Reporte_NoteCam_{clean_z}_{ts}.xlsx"
+            export_to_excel(target_list, out_file, zone_name=sel_zone)
+            show_export_result(f"Excel de Zona '{sel_zone}' generado", out_file)
+        else:
+            out_file = REPORTS_DIR / f"Reporte_NoteCam_Completo_{ts}.xlsx"
+            export_to_excel(all_records, out_file)
+            export_to_excel(all_records, REPORTS_DIR / "Reporte_NoteCam_Categorizado.xlsx")
+            show_export_result("Excel Completo generado", out_file)
 
     def on_export_pdf_compact(e):
-        target_list = filtered_records if filtered_records else all_records
+        sel_zone = export_zone_dropdown.value or "TODAS"
+        target_list = [r for r in all_records if r.get("carpeta") == sel_zone] if sel_zone != "TODAS" else all_records
         if not target_list:
-            show_message("No hay registros para exportar.", is_error=True)
+            show_message(f"No hay registros disponibles para la zona {sel_zone}.", is_error=True)
             return
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        out_file = REPORTS_DIR / f"Reporte_Compacto_NoteCam_{ts}.pdf"
-        export_pdf_compact(target_list, out_file)
-        export_pdf_compact(all_records, REPORTS_DIR / "Reporte_Compacto_NoteCam.pdf")
-        show_message(f"PDF Compacto exportado en: reportes/{out_file.name}")
+        if sel_zone != "TODAS":
+            clean_z = re.sub(r'[^a-zA-Z0-9_-]', '_', sel_zone)
+            out_file = REPORTS_DIR / f"Reporte_Compacto_{clean_z}_{ts}.pdf"
+            export_pdf_compact(target_list, out_file, zone_name=sel_zone)
+            show_export_result(f"PDF Compacto de Zona '{sel_zone}' generado", out_file)
+        else:
+            out_file = REPORTS_DIR / f"Reporte_Compacto_NoteCam_{ts}.pdf"
+            export_pdf_compact(all_records, out_file)
+            show_export_result("PDF Compacto generado", out_file)
 
     def on_export_pdf_photo(e):
-        target_list = filtered_records if filtered_records else all_records
+        sel_zone = export_zone_dropdown.value or "TODAS"
+        target_list = [r for r in all_records if r.get("carpeta") == sel_zone] if sel_zone != "TODAS" else all_records
         if not target_list:
-            show_message("No hay registros para exportar.", is_error=True)
+            show_message(f"No hay registros disponibles para la zona {sel_zone}.", is_error=True)
             return
 
         def _worker():
-            show_message("Generando PDF Fotográfico con miniaturas y coordenadas...")
+            zone_desc = f"Zona '{sel_zone}'" if sel_zone != "TODAS" else "Todas las Zonas"
+            show_message(f"Generando PDF Fotográfico para {zone_desc} ({len(target_list)} árboles)...")
             progress_bar.visible = True
             progress_bar.value = None
             page.update()
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            out_file = REPORTS_DIR / f"Reporte_Fotografico_NoteCam_{ts}.pdf"
-            export_pdf_photographic(target_list, out_file)
-            export_pdf_photographic(all_records, REPORTS_DIR / "Reporte_Fotografico_NoteCam.pdf")
-            progress_bar.visible = False
-            show_message(f"PDF Fotográfico exportado en: reportes/{out_file.name}")
+            if sel_zone != "TODAS":
+                clean_z = re.sub(r'[^a-zA-Z0-9_-]', '_', sel_zone)
+                out_file = REPORTS_DIR / f"Reporte_Fotografico_{clean_z}_{ts}.pdf"
+                export_pdf_photographic(target_list, out_file, zone_name=sel_zone)
+                progress_bar.visible = False
+                show_export_result(f"PDF Fotográfico de Zona '{sel_zone}' generado", out_file)
+            else:
+                out_file = REPORTS_DIR / f"Reporte_Fotografico_NoteCam_{ts}.pdf"
+                export_pdf_photographic(all_records, out_file)
+                export_pdf_photographic(all_records, REPORTS_DIR / "Reporte_Fotografico_NoteCam.pdf")
+                progress_bar.visible = False
+                show_export_result("PDF Fotográfico generado", out_file)
 
         threading.Thread(target=_worker, daemon=True).start()
 
     def on_open_interactive_map(e):
-        target_list = filtered_records if filtered_records else all_records
+        target_list = all_records if all_records else list(extractor.cache.values())
+        if not target_list:
+            show_message("No hay registros disponibles para mostrar en el mapa.", is_error=True)
+            return
         map_path = REPORTS_DIR / "mapa_plantaciones.html"
         generate_interactive_html_map(target_list, map_path)
         webbrowser.open(map_path.as_uri())
-        show_message("Abriendo mapa interactivo de zonas de plantación en el navegador...")
+        show_message(f"Abriendo mapa interactivo de plantaciones ({len(target_list)} árboles cargados)...")
 
     def on_export_kml(e):
         target_list = filtered_records if filtered_records else all_records
         kml_path = REPORTS_DIR / "plantaciones_zonas.kml"
         export_to_kml(target_list, kml_path)
-        show_message(f"Capa KML exportada en: reportes/{kml_path.name} (compatible con Google Earth y My Maps).")
+        show_export_result("Capa KML generada con éxito", kml_path)
 
     def on_open_reports_folder(e):
         os.startfile(str(REPORTS_DIR))
@@ -524,7 +636,7 @@ def main(page: ft.Page):
     )
 
     toolbar_row = ft.Container(
-        content=ft.Row(
+        content=ft.Column(
             controls=[
                 ft.Row(
                     controls=[
@@ -534,9 +646,11 @@ def main(page: ft.Page):
                         append_switch,
                     ],
                     spacing=10,
+                    wrap=True,
                 ),
                 ft.Row(
                     controls=[
+                        export_zone_dropdown,
                         ft.FilledButton(
                             content="Excel (.xlsx)",
                             icon=ft.Icons.TABLE_VIEW,
@@ -572,10 +686,10 @@ def main(page: ft.Page):
                         ),
                     ],
                     spacing=8,
+                    wrap=True,
                 ),
             ],
-            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-            wrap=True,
+            spacing=10,
         ),
         bgcolor="#FFFFFF",
         padding=12,
@@ -647,6 +761,7 @@ def main(page: ft.Page):
                 header_bar,
                 kpi_row,
                 toolbar_row,
+                export_banner,
                 main_content,
             ],
             spacing=10,
@@ -654,9 +769,15 @@ def main(page: ft.Page):
         )
     )
 
-    # Cargar automáticamente los datos al iniciar
+    # Inicializar con todos los registros de caché y regenerar mapa y KML completos
+    if all_records:
+        refresh_filters_and_table()
+        generate_interactive_html_map(all_records, REPORTS_DIR / "mapa_plantaciones.html")
+        export_to_kml(all_records, REPORTS_DIR / "plantaciones_zonas.kml")
+
+    # Si la carpeta por defecto existe, asegurar que sus imágenes estén procesadas (acumulando)
     if DEFAULT_IMAGES_DIR.exists():
-        run_extraction_in_background([DEFAULT_IMAGES_DIR], append=False)
+        run_extraction_in_background([DEFAULT_IMAGES_DIR], append=True)
 
 
 if __name__ == "__main__":

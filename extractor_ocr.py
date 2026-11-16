@@ -67,13 +67,21 @@ class NoteCamExtractor:
     @staticmethod
     def _clean_note_text(note: str) -> str:
         """
-        Restaura espacios naturales en notas donde el OCR juntó palabras o números.
+        Restaura espacios naturales en notas donde el OCR juntó palabras o números,
+        y filtra textos basura de capturas de pantalla de WhatsApp.
         """
         s = note.strip()
-        # Quitar prefijo Nota: si quedó
-        s = re.sub(r"^[Nn]ota\s*[:\.\-]?\s*", "", s).strip()
+        # Filtrar elementos de interfaz de WhatsApp
+        if s.lower() in ("responder", "pnder", "justo ahora", "onder", "escribir un mensaje", "100"):
+            return ""
+
+        # Quitar prefijos como Nota:, NOta:, INota:, NOTA
+        s = re.sub(r"(?i)^i?nota\s*[:\.\-]?\s*", "", s).strip()
+
         # Restaurar casos comunes pegados
         replacements = [
+            (r"(?i)cc\.?\s*nn\.?\s*san\s*francisc[oa]?", "CC.NN SAN FRANCISCO"),
+            (r"(?i)ccnn\s*san\s*francisc[oa]?", "CC.NN SAN FRANCISCO"),
             (r"(?i)jardines\s*de\s*manatay", "Jardines de Manatay"),
             (r"(?i)jardines\s*de\s*manantay", "Jardines de Manantay"),
             (r"(?i)la\s*florida", "la florida"),
@@ -101,39 +109,68 @@ class NoteCamExtractor:
     @staticmethod
     def normalize_folder_name(folder_name: str) -> str:
         """
-        Normaliza nombres de carpeta unificando variantes (ej. MICAELA 1 y MICAELA).
+        Normaliza nombres de carpeta unificando variantes.
         """
         f = (folder_name or "").strip()
-        if f.upper() in ("MICAELA", "MICAELA 1", "MICAELA1"):
+        f_low = f.lower()
+        if "francisco" in f_low:
+            return "CC.NN SAN FRANCISCO"
+        if "abril" in f_low:
+            return "2 de ABRIL"
+        if "micaela" in f_low:
             return "MICAELA"
+        if "manantay" in f_low or "manatay" in f_low:
+            return "JARDINES DE MANANTAY"
+        if "florida" in f_low:
+            return "La Florida"
+        if "noviembre" in f_low:
+            return "20 de Noviembre"
         return f
 
     @staticmethod
     def derive_category_from_note(note: str, folder_name: str) -> str:
         """
-        Agrupa las notas por su categoría base (quitando numeración correlativa de cada planta/punto).
+        Agrupa las notas por su categoría base única por zona / proyecto.
         """
         norm_folder = NoteCamExtractor.normalize_folder_name(folder_name)
+        folder_low = norm_folder.lower()
+
+        # Prioridad por zona / carpeta oficial
+        if "francisco" in folder_low:
+            return "CC.NN. San Francisco"
+        if "abril" in folder_low:
+            return "2 de Abril"
+        if "manatay" in folder_low or "manantay" in folder_low:
+            return "Jardines de Manantay"
+        if "florida" in folder_low:
+            return "La Florida"
+        if "micaela" in folder_low:
+            return "Micaela - Pashaco"
+        if "noviembre" in folder_low:
+            return "GRFFS"
+
         if not note:
             return norm_folder or "Sin Categoría"
-        base = note
-        # Quitar números y códigos correlativos finales como "b. 11", "10", "1. pashaco"
-        base = re.sub(r"\b[bB]\.?\s*\d+\b", "", base)
-        base = re.sub(r"\b\d+\.?\b", "", base)
-        base = re.sub(r"\s+", " ", base).strip(" .,-_/")
-        if not base:
-            return norm_folder or "Sin Categoría"
 
-        low = base.lower()
+        low = note.lower()
+        if "francisco" in low:
+            return "CC.NN. San Francisco"
+        if "abril" in low:
+            return "2 de Abril"
         if "manatay" in low or "manantay" in low:
             return "Jardines de Manantay"
         if "florida" in low:
             return "La Florida"
-        if "micaela" in low or "pashaco" in low or "micaela" in norm_folder.lower():
+        if "micaela" in low or "pashaco" in low:
             return "Micaela - Pashaco"
         if "grffs" in low:
             return "GRFFS"
-        return base.title()
+
+        base = note
+        base = re.sub(r"\b[bB]\.?\s*\d+\b", "", base)
+        base = re.sub(r"\b\d+\.?\b", "", base)
+        base = re.sub(r"\s+", " ", base).strip(" .,-_/")
+        return base.title() if base else (norm_folder or "Sin Categoría")
 
     def parse_ocr_lines(self, lines: List[str], folder_name: str, filename: str, filepath: str) -> Dict[str, str]:
         """

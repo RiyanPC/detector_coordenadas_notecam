@@ -40,21 +40,23 @@ def _normalize_records(records: List[Dict[str, str]]) -> List[Dict[str, str]]:
         rc = dict(r)
         c = NoteCamExtractor.normalize_folder_name(rc.get("carpeta", "General"))
         rc["carpeta"] = c
-        if c == "MICAELA":
-            rc["categoria"] = "Micaela - Pashaco"
+        rc["categoria"] = NoteCamExtractor.derive_category_from_note(rc.get("nota", ""), c)
         norm.append(rc)
     return norm
 
 
-def export_to_excel(records: List[Dict[str, str]], output_path: str | Path) -> str:
+def export_to_excel(records: List[Dict[str, str]], output_path: str | Path, zone_name: Optional[str] = None) -> str:
     """
     Exporta los registros extraídos a un archivo Excel (.xlsx) con:
     - Columna con enlace directo a Google Maps
-    - Hoja 1: Datos Consolidados
+    - Hoja 1: Datos Consolidados (o de la zona seleccionada)
     - Hoja 2: Resumen por Categorías y Zonas
-    - Hojas individuales por cada Carpeta / Zona
+    - Hojas individuales por cada Carpeta / Zona (si es reporte completo)
     """
     records = _normalize_records(records)
+    if zone_name and zone_name != "TODAS":
+        records = [r for r in records if r.get("carpeta") == zone_name]
+
     out = Path(output_path).resolve()
     out.parent.mkdir(parents=True, exist_ok=True)
 
@@ -154,10 +156,14 @@ def export_to_excel(records: List[Dict[str, str]], output_path: str | Path) -> s
         for c_idx, width in enumerate(col_widths, start=1):
             ws.column_dimensions[get_column_letter(c_idx)].width = width
 
-    # 1. Hoja Consolidada
+    # 1. Hoja Principal
     ws_all = wb.active
-    ws_all.title = "Datos Consolidados"
-    populate_data_sheet(ws_all, records, "REPORTE CONSOLIDADO DE TEXTOS Y COORDENADAS (NOTECAM)")
+    if zone_name and zone_name != "TODAS":
+        ws_all.title = _sanitize_sheet_name(f"Zona {zone_name}")
+        populate_data_sheet(ws_all, records, f"REPORTE DE PLANTACIONES — ZONA: {zone_name.upper()}")
+    else:
+        ws_all.title = "Datos Consolidados"
+        populate_data_sheet(ws_all, records, "REPORTE CONSOLIDADO DE TEXTOS Y COORDENADAS (NOTECAM)")
 
     # 2. Hoja Resumen por Categoría y Carpeta
     ws_sum = wb.create_sheet(title="Resumen Categorías")
@@ -211,22 +217,23 @@ def export_to_excel(records: List[Dict[str, str]], output_path: str | Path) -> s
     for c_idx, w in enumerate([26, 26, 22, 18, 14, 32], start=1):
         ws_sum.column_dimensions[get_column_letter(c_idx)].width = w
 
-    # 3. Hojas separadas por Carpeta / Zona
-    by_folder = defaultdict(list)
-    for rec in records:
-        by_folder[rec.get("carpeta", "General")].append(rec)
+    # 3. Hojas separadas por Carpeta / Zona (solo si no es reporte de una sola zona)
+    if not zone_name or zone_name == "TODAS":
+        by_folder = defaultdict(list)
+        for rec in records:
+            by_folder[rec.get("carpeta", "General")].append(rec)
 
-    used_names = {"datos consolidados", "resumen categorías"}
-    for folder_name, folder_rows in sorted(by_folder.items()):
-        s_name = _sanitize_sheet_name(folder_name)
-        base_s = s_name
-        cnt = 2
-        while s_name.lower() in used_names:
-            s_name = f"{base_s[:24]}_{cnt}"
-            cnt += 1
-        used_names.add(s_name.lower())
-        ws_f = wb.create_sheet(title=s_name)
-        populate_data_sheet(ws_f, folder_rows, f"ZONA / CARPETA: {folder_name.upper()}")
+        used_names = {"datos consolidados", "resumen categorías"}
+        for folder_name, folder_rows in sorted(by_folder.items()):
+            s_name = _sanitize_sheet_name(folder_name)
+            base_s = s_name
+            cnt = 2
+            while s_name.lower() in used_names:
+                s_name = f"{base_s[:24]}_{cnt}"
+                cnt += 1
+            used_names.add(s_name.lower())
+            ws_f = wb.create_sheet(title=s_name)
+            populate_data_sheet(ws_f, folder_rows, f"ZONA / CARPETA: {folder_name.upper()}")
 
     wb.save(out)
     return str(out)
@@ -242,11 +249,14 @@ def _add_page_number(canvas, doc):
     canvas.restoreState()
 
 
-def export_pdf_compact(records: List[Dict[str, str]], output_path: str | Path) -> str:
+def export_pdf_compact(records: List[Dict[str, str]], output_path: str | Path, zone_name: Optional[str] = None) -> str:
     """
     Exporta un reporte PDF compacto en formato tabla (Horizontal A4) con enlace a Google Maps.
     """
     records = _normalize_records(records)
+    if zone_name and zone_name != "TODAS":
+        records = [r for r in records if r.get("carpeta") == zone_name]
+
     out = Path(output_path).resolve()
     out.parent.mkdir(parents=True, exist_ok=True)
 
@@ -303,7 +313,8 @@ def export_pdf_compact(records: List[Dict[str, str]], output_path: str | Path) -
     )
 
     story = []
-    story.append(Paragraph("REPORTE CATEGORIZADO DE PLANTACIONES (NOTECAM)", title_style))
+    doc_heading = f"REPORTE DE PLANTACIONES — ZONA: {zone_name.upper()}" if (zone_name and zone_name != "TODAS") else "REPORTE CATEGORIZADO DE PLANTACIONES (NOTECAM)"
+    story.append(Paragraph(doc_heading, title_style))
     story.append(
         Paragraph(
             f"Total de imágenes procesadas: <b>{len(records)}</b> &nbsp;|&nbsp; Fecha de generación: {datetime.now().strftime('%d/%m/%Y %H:%M')}",
@@ -425,11 +436,14 @@ def _pil_to_rl_image(pil_img: PILImage.Image, max_w: float, max_h: float) -> RLI
     return RLImage(buf, width=iw * ratio, height=ih * ratio)
 
 
-def export_pdf_photographic(records: List[Dict[str, str]], output_path: str | Path) -> str:
+def export_pdf_photographic(records: List[Dict[str, str]], output_path: str | Path, zone_name: Optional[str] = None) -> str:
     """
     Exporta un reporte PDF fotográfico con miniatura, recorte y botón a Google Maps.
     """
     records = _normalize_records(records)
+    if zone_name and zone_name != "TODAS":
+        records = [r for r in records if r.get("carpeta") == zone_name]
+
     out = Path(output_path).resolve()
     out.parent.mkdir(parents=True, exist_ok=True)
 
@@ -485,7 +499,8 @@ def export_pdf_photographic(records: List[Dict[str, str]], output_path: str | Pa
     )
 
     story = []
-    story.append(Paragraph("REPORTE FOTOGRÁFICO DE PLANTACIONES Y COORDENADAS (NOTECAM)", title_style))
+    doc_heading = f"REPORTE FOTOGRÁFICO — ZONA: {zone_name.upper()}" if (zone_name and zone_name != "TODAS") else "REPORTE FOTOGRÁFICO DE PLANTACIONES Y COORDENADAS (NOTECAM)"
+    story.append(Paragraph(doc_heading, title_style))
     story.append(
         Paragraph(
             f"Total de registros: <b>{len(records)}</b> &nbsp;|&nbsp; Incluye foto, recorte OCR y enlace de ubicación en Google Maps.",

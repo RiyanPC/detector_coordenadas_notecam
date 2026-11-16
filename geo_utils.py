@@ -145,8 +145,19 @@ ZONE_COLORS = [
 
 def normalize_zone_name(name: str) -> str:
     s = (name or "").strip()
-    if s.upper() in ("MICAELA", "MICAELA 1", "MICAELA1"):
+    s_low = s.lower()
+    if "francisco" in s_low:
+        return "CC.NN SAN FRANCISCO"
+    if "abril" in s_low:
+        return "2 de ABRIL"
+    if "micaela" in s_low:
         return "MICAELA"
+    if "manantay" in s_low or "manatay" in s_low:
+        return "JARDINES DE MANANTAY"
+    if "florida" in s_low:
+        return "La Florida"
+    if "noviembre" in s_low:
+        return "20 de Noviembre"
     return s
 
 
@@ -159,19 +170,22 @@ def generate_interactive_html_map(records: List[Dict[str, str]], output_path: st
     out.parent.mkdir(parents=True, exist_ok=True)
 
     by_zone = defaultdict(list)
+    unplaced_by_zone = defaultdict(list)
     valid_points_all = []
 
     for r in records:
         lat, lon = get_lat_lon(r)
+        zone_key = normalize_zone_name(r.get("carpeta") or "Zona General")
+        r_copy = dict(r)
+        r_copy["carpeta"] = zone_key
         if lat is not None and lon is not None:
-            r_copy = dict(r)
             r_copy["lat"] = lat
             r_copy["lon"] = lon
             r_copy["gmaps_url"] = get_google_maps_url(lat, lon)
-            zone_key = normalize_zone_name(r.get("carpeta") or "Zona General")
-            r_copy["carpeta"] = zone_key
             by_zone[zone_key].append(r_copy)
             valid_points_all.append((lat, lon))
+        else:
+            unplaced_by_zone[zone_key].append(r_copy)
 
     if not valid_points_all:
         center_lat, center_lon = -8.38, -74.55
@@ -180,6 +194,7 @@ def generate_interactive_html_map(records: List[Dict[str, str]], output_path: st
         center_lon = sum(p[1] for p in valid_points_all) / len(valid_points_all)
 
     zones_data = []
+    # 1. Zonas georreferenciadas con puntos y polígonos
     for idx, (zone_name, items) in enumerate(sorted(by_zone.items())):
         coords = [(item["lat"], item["lon"]) for item in items]
         hull = convex_hull_2d(coords) if len(coords) >= 3 else coords
@@ -216,7 +231,22 @@ def generate_interactive_html_map(records: List[Dict[str, str]], output_path: st
             "color": color,
             "polygon": [[round(p[0], 6), round(p[1], 6)] for p in hull],
             "items": items_parsed,
+            "is_unplaced": False,
         })
+
+    # 2. Zonas sin coordenadas GPS (ej. 2 de ABRIL)
+    for u_idx, (u_zone, u_items) in enumerate(sorted(unplaced_by_zone.items())):
+        if u_zone not in by_zone:
+            zones_data.append({
+                "id": f"unplaced_{u_idx}",
+                "name": u_zone,
+                "count": len(u_items),
+                "species_summary": "Sin coordenadas GPS (capturas de pantalla)",
+                "color": {"stroke": "#6B7280", "fill": "#9CA3AF", "marker": "#6B7280"},
+                "polygon": [],
+                "items": [],
+                "is_unplaced": True,
+            })
 
     zones_json = json.dumps(zones_data, ensure_ascii=False)
 
@@ -627,12 +657,18 @@ def generate_interactive_html_map(records: List[Dict[str, str]], output_path: st
         <b>Especies / Notas:</b> ${{zone.species_summary || 'N/D'}}
       </div>
       <div class="zone-actions">
-        <button class="btn btn-primary" onclick="zoomToZone('${{zone.id}}')">
-          ${{SVG_ZOOM}} Enfocar
-        </button>
-        <button class="btn" onclick="toggleZone('${{zone.id}}', this)">
-          ${{SVG_EYE}} Ocultar
-        </button>
+        ${{zone.is_unplaced ? `
+          <span style="font-size:11px; color:#6B7280; font-style:italic; padding:4px 0;">
+            Sin coordenadas GPS registradas
+          </span>
+        ` : `
+          <button class="btn btn-primary" onclick="zoomToZone('${{zone.id}}')">
+            ${{SVG_ZOOM}} Enfocar
+          </button>
+          <button class="btn" onclick="toggleZone('${{zone.id}}', this)">
+            ${{SVG_EYE}} Ocultar
+          </button>
+        `}}
       </div>
     `;
     cardsContainer.appendChild(card);
@@ -640,7 +676,7 @@ def generate_interactive_html_map(records: List[Dict[str, str]], output_path: st
 
   function zoomToZone(zoneId) {{
     const layer = zoneLayers[zoneId];
-    if (layer) {{
+    if (layer && layer.getLayers().length > 0) {{
       if (!map.hasLayer(layer)) map.addLayer(layer);
       map.fitBounds(layer.getBounds(), {{ padding: [50, 50] }});
     }}
